@@ -72,6 +72,7 @@ def crear_video_vertical(ruta_clip, titulo, nombre_salida, carpeta_destino="clip
         # - Crea un fondo negro de 1080x1920
         # - Pone el video en el centro del fondo negro
         # - Pone el título en la parte superior (y=150)
+        # - shortest=1 asegura que el video termine cuando termine el clip original
         comando = [
             "ffmpeg",
             "-y", # Sobrescribir
@@ -80,7 +81,7 @@ def crear_video_vertical(ruta_clip, titulo, nombre_salida, carpeta_destino="clip
             "-filter_complex", 
             "[0:v]scale=1080:-1[vid];" + # Escalar video
             "color=c=black:s=1080x1920[bg];" + # Crear fondo negro
-            "[bg][vid]overlay=0:(H-h)/2[bg_vid];" + # Centrar video en el fondo
+            "[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];" + # Centrar video y detener al terminar el clip
             "[bg_vid][1:v]overlay=0:150", # Poner título arriba
             "-c:v", "libx264", # Codec de video
             "-preset", "ultrafast", # Renderizado súper rápido
