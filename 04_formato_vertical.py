@@ -50,11 +50,11 @@ def crear_imagen_titulo(texto, ancho, alto=300, ruta_salida="temp_titulo.png"):
     img.save(ruta_salida)
     return ruta_salida
 
-def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_destino="clips_finales", ruta_logo=None, es_imagen_titulo=False):
+def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_destino="clips_finales", es_imagen_titulo=False):
     """
-    Toma un clip horizontal, lo pone en un lienzo vertical (9:16) con fondo negro,
-    le añade un título (texto o imagen) en la parte superior y opcionalmente un logo en la esquina inferior derecha.
-    Limpia todos los metadatos para evitar detección en TikTok.
+    Toma un clip horizontal, lo pone en un lienzo vertical (9:16) con fondo borroso (blur) dinámico,
+    le añade un título (texto o imagen) en la parte superior.
+    Limpia todos los metadatos y altera ligeramente la velocidad/zoom para evitar detección en TikTok.
     """
     if not os.path.exists(carpeta_destino):
         os.makedirs(carpeta_destino)
@@ -83,39 +83,30 @@ def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_dest
         ]
         
         # Ajustar el overlay del título dependiendo de si es imagen o texto
-        # Si es imagen personalizada, la escalamos a 1080 de ancho y la ponemos hasta arriba (y=0)
-        # Si es texto generado, lo ponemos un poco más abajo (y=150)
         escala_titulo = "[1:v]scale=1080:-1[tit_escalado];" if es_imagen_titulo else ""
         entrada_titulo = "[tit_escalado]" if es_imagen_titulo else "[1:v]"
         pos_y_titulo = "0" if es_imagen_titulo else "150"
 
-        # Si hay logo, lo añadimos como entrada 2
-        if ruta_logo and os.path.exists(ruta_logo):
-            comando.extend(["-i", ruta_logo])
-            filter_complex = (
-                f"[0:v]scale=1080:-1[vid];"
-                f"color=c=black:s=1080x1920[bg];"
-                f"{escala_titulo}"
-                f"[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];"
-                f"[bg_vid]{entrada_titulo}overlay=0:{pos_y_titulo}[bg_vid_tit];"
-                f"[2:v]scale=200:-1[logo];"
-                f"[bg_vid_tit][logo]overlay=W-w-50:H-h-50"
-            )
-        else:
-            # Filter complex sin logo
-            filter_complex = (
-                f"[0:v]scale=1080:-1[vid];"
-                f"color=c=black:s=1080x1920[bg];"
-                f"{escala_titulo}"
-                f"[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];"
-                f"[bg_vid]{entrada_titulo}overlay=0:{pos_y_titulo}"
-            )
+        # Filter complex ANTI-BANEO TIKTOK:
+        # 1. [0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg] -> Crea el fondo borroso dinámico
+        # 2. [0:v]scale=1080:-1,zoompan=z='1.02':d=1[vid] -> Escala el video principal y le hace un zoom imperceptible del 2%
+        # 3. [bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid] -> Pone el video sobre el fondo borroso
+        # 4. [bg_vid]{entrada_titulo}overlay=0:{pos_y_titulo} -> Pone el título
+        filter_complex = (
+            f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];"
+            f"[0:v]scale=1080:-1,zoompan=z='1.02':d=1[vid];"
+            f"{escala_titulo}"
+            f"[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];"
+            f"[bg_vid]{entrada_titulo}overlay=0:{pos_y_titulo}"
+        )
             
         comando.extend([
             "-filter_complex", filter_complex,
             "-c:v", "libx264", # Codec de video
             "-preset", "ultrafast", # Renderizado súper rápido
-            "-c:a", "copy", # Copiar el audio tal cual
+            # Aceleramos el audio un 1% para que el hash sea diferente al original
+            "-filter:a", "atempo=1.01", 
+            "-c:a", "aac", # Como usamos filtro de audio, debemos re-codificar a aac
             "-map_metadata", "-1", # ¡CRÍTICO! Borrar todos los metadatos para TikTok
             ruta_salida
         ])
@@ -176,17 +167,10 @@ if __name__ == "__main__":
             else:
                 titulo = input("Ingresa el título llamativo para la parte superior del video: ")
             
-            # Preguntar por el logo
-            usar_logo = input("\n¿Quieres añadir tu logo 'imagenpersonal.jpg' en la esquina inferior derecha? (s/n): ").lower()
-            ruta_logo = "imagenpersonal.jpg" if usar_logo == 's' else None
-            
-            if ruta_logo and not os.path.exists(ruta_logo):
-                print(f"Advertencia: No se encontró el archivo '{ruta_logo}'. Se continuará sin logo.")
-                ruta_logo = None
-            
             nombre_salida = f"vertical_{nombre_clip}"
             
-            crear_video_vertical(ruta_clip, titulo, nombre_salida, ruta_logo=ruta_logo, es_imagen_titulo=es_imagen_titulo)
+            print("\n[INFO] Aplicando técnicas anti-baneo de TikTok (Fondo borroso dinámico, zoom 2%, velocidad 1.01x, sin metadatos)...")
+            crear_video_vertical(ruta_clip, titulo, nombre_salida, es_imagen_titulo=es_imagen_titulo)
         else:
             print("Número de clip inválido.")
     except ValueError:
