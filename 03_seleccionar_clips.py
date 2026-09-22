@@ -2,6 +2,29 @@ import os
 import json
 import subprocess
 
+def convertir_tiempo_a_segundos(tiempo_str):
+    """
+    Convierte un string de tiempo en formato MM.SS o segundos a segundos totales (float).
+    Ejemplos:
+    '1.45' -> 1 minuto y 45 segundos -> 105.0 segundos
+    '0.4'  -> 0 minutos y 4 segundos -> 4.0 segundos
+    '45'   -> 45 segundos -> 45.0 segundos
+    """
+    try:
+        # Si el usuario ingresa un número con punto (ej. 1.45)
+        if '.' in tiempo_str:
+            partes = tiempo_str.split('.')
+            minutos = int(partes[0])
+            # Si ingresa '0.4', lo tratamos como 4 segundos, no 40.
+            # Si ingresa '1.45', son 45 segundos.
+            segundos = int(partes[1])
+            return float(minutos * 60 + segundos)
+        else:
+            # Si ingresa solo un número entero (ej. 45)
+            return float(tiempo_str)
+    except ValueError:
+        raise ValueError("Formato de tiempo inválido.")
+
 def extraer_clip(ruta_video, tiempo_inicio, tiempo_fin, nombre_salida, carpeta_destino="clips_recortados"):
     """
     Recorta un fragmento de video usando FFmpeg directamente para asegurar que el audio se mantenga
@@ -113,15 +136,19 @@ if __name__ == "__main__":
                 print("\n[Aviso] No se encontró transcripción para este video.")
                 print("Modo manual activado (ideal para gameplays o videos sin voz).")
                 
-            print("\nPuedes crear un clip ingresando el tiempo de inicio y fin en segundos.")
-            print("Ejemplo: Si quieres un clip del segundo 10.5 al 25.0, ingresa 10.5 y luego 25.0")
+            print("\nPuedes crear un clip ingresando el tiempo en formato MINUTOS.SEGUNDOS (ej. 1.45) o solo segundos (ej. 105).")
+            print("Ejemplo: Para 1 minuto y 45 segundos, ingresa '1.45'. Para 4 segundos, ingresa '0.4'.")
             
             while True:
                     try:
-                        t_inicio = float(input("\nTiempo de INICIO (en segundos, o '0' para salir): "))
-                        if t_inicio == 0:
+                        entrada_inicio = input("\nTiempo de INICIO (ej. 1.45, o '0' para salir): ")
+                        if entrada_inicio == '0':
                             break
-                        t_fin = float(input("Tiempo de FIN (en segundos): "))
+                            
+                        t_inicio = convertir_tiempo_a_segundos(entrada_inicio)
+                        
+                        entrada_fin = input("Tiempo de FIN (ej. 2.15): ")
+                        t_fin = convertir_tiempo_a_segundos(entrada_fin)
                         
                         if t_fin <= t_inicio:
                             print("El tiempo de fin debe ser mayor al tiempo de inicio.")

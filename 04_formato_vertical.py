@@ -50,10 +50,10 @@ def crear_imagen_titulo(texto, ancho, alto=300, ruta_salida="temp_titulo.png"):
     img.save(ruta_salida)
     return ruta_salida
 
-def crear_video_vertical(ruta_clip, titulo, nombre_salida, carpeta_destino="clips_finales", ruta_logo=None):
+def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_destino="clips_finales", ruta_logo=None, es_imagen_titulo=False):
     """
     Toma un clip horizontal, lo pone en un lienzo vertical (9:16) con fondo negro,
-    le añade un título en la parte superior y opcionalmente un logo en la esquina inferior derecha.
+    le añade un título (texto o imagen) en la parte superior y opcionalmente un logo en la esquina inferior derecha.
     Limpia todos los metadatos para evitar detección en TikTok.
     """
     if not os.path.exists(carpeta_destino):
@@ -65,41 +65,50 @@ def crear_video_vertical(ruta_clip, titulo, nombre_salida, carpeta_destino="clip
     
     print(f"Procesando {ruta_clip} a formato vertical (Modo Ultra Rápido)...")
     try:
-        # 1. Crear la imagen del título
-        crear_imagen_titulo(titulo, 1080, 300, ruta_titulo_temp)
+        # 1. Preparar la imagen del título (generada o proporcionada por el usuario)
+        if es_imagen_titulo and os.path.exists(titulo_o_imagen):
+            # Usar la imagen proporcionada por el usuario
+            ruta_titulo_final = titulo_o_imagen
+        else:
+            # Generar la imagen con texto
+            crear_imagen_titulo(titulo_o_imagen, 1080, 300, ruta_titulo_temp)
+            ruta_titulo_final = ruta_titulo_temp
         
         # 2. Construir el comando FFmpeg
         comando = [
             "ffmpeg",
             "-y", # Sobrescribir
             "-i", ruta_clip, # Entrada 0: El video
-            "-i", ruta_titulo_temp, # Entrada 1: El título
+            "-i", ruta_titulo_final, # Entrada 1: El título (texto o imagen)
         ]
         
+        # Ajustar el overlay del título dependiendo de si es imagen o texto
+        # Si es imagen personalizada, la escalamos a 1080 de ancho y la ponemos hasta arriba (y=0)
+        # Si es texto generado, lo ponemos un poco más abajo (y=150)
+        escala_titulo = "[1:v]scale=1080:-1[tit_escalado];" if es_imagen_titulo else ""
+        entrada_titulo = "[tit_escalado]" if es_imagen_titulo else "[1:v]"
+        pos_y_titulo = "0" if es_imagen_titulo else "150"
+
         # Si hay logo, lo añadimos como entrada 2
         if ruta_logo and os.path.exists(ruta_logo):
             comando.extend(["-i", ruta_logo])
-            # Filter complex con logo:
-            # - Escala el video a 1080
-            # - Crea fondo negro
-            # - Centra el video
-            # - Pone el título arriba
-            # - Escala el logo a 200px de ancho y lo pone abajo a la derecha (con margen de 50px)
             filter_complex = (
-                "[0:v]scale=1080:-1[vid];"
-                "color=c=black:s=1080x1920[bg];"
-                "[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];"
-                "[bg_vid][1:v]overlay=0:150[bg_vid_tit];"
-                "[2:v]scale=200:-1[logo];"
-                "[bg_vid_tit][logo]overlay=W-w-50:H-h-50"
+                f"[0:v]scale=1080:-1[vid];"
+                f"color=c=black:s=1080x1920[bg];"
+                f"{escala_titulo}"
+                f"[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];"
+                f"[bg_vid]{entrada_titulo}overlay=0:{pos_y_titulo}[bg_vid_tit];"
+                f"[2:v]scale=200:-1[logo];"
+                f"[bg_vid_tit][logo]overlay=W-w-50:H-h-50"
             )
         else:
             # Filter complex sin logo
             filter_complex = (
-                "[0:v]scale=1080:-1[vid];"
-                "color=c=black:s=1080x1920[bg];"
-                "[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];"
-                "[bg_vid][1:v]overlay=0:150"
+                f"[0:v]scale=1080:-1[vid];"
+                f"color=c=black:s=1080x1920[bg];"
+                f"{escala_titulo}"
+                f"[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];"
+                f"[bg_vid]{entrada_titulo}overlay=0:{pos_y_titulo}"
             )
             
         comando.extend([
@@ -115,8 +124,8 @@ def crear_video_vertical(ruta_clip, titulo, nombre_salida, carpeta_destino="clip
         # Ejecutar FFmpeg
         subprocess.run(comando, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        # Limpiar archivo temporal
-        if os.path.exists(ruta_titulo_temp):
+        # Limpiar archivo temporal (solo si se generó texto)
+        if not es_imagen_titulo and os.path.exists(ruta_titulo_temp):
             os.remove(ruta_titulo_temp)
             
         print(f"¡Video vertical creado exitosamente en: {ruta_salida}!")
@@ -151,10 +160,24 @@ if __name__ == "__main__":
             nombre_clip = clips[indice_clip]
             ruta_clip = os.path.join(carpeta_clips, nombre_clip)
             
-            titulo = input("Ingresa el título llamativo para la parte superior del video: ")
+            print("\nOpciones para el título superior:")
+            print("1. Escribir un texto (se generará automáticamente)")
+            print("2. Usar una imagen personalizada (ej. mi_titulo.jpg)")
+            opcion_titulo = input("Elige una opción (1 o 2): ")
+            
+            es_imagen_titulo = False
+            if opcion_titulo == '2':
+                titulo = input("Ingresa el nombre de tu imagen (ej. mi_titulo.jpg): ")
+                if not os.path.exists(titulo):
+                    print(f"Error: No se encontró la imagen '{titulo}'. Se usará texto por defecto.")
+                    titulo = "CLIP VIRAL"
+                else:
+                    es_imagen_titulo = True
+            else:
+                titulo = input("Ingresa el título llamativo para la parte superior del video: ")
             
             # Preguntar por el logo
-            usar_logo = input("¿Quieres añadir tu logo 'imagenpersonal.jpg' en la esquina inferior derecha? (s/n): ").lower()
+            usar_logo = input("\n¿Quieres añadir tu logo 'imagenpersonal.jpg' en la esquina inferior derecha? (s/n): ").lower()
             ruta_logo = "imagenpersonal.jpg" if usar_logo == 's' else None
             
             if ruta_logo and not os.path.exists(ruta_logo):
@@ -163,7 +186,7 @@ if __name__ == "__main__":
             
             nombre_salida = f"vertical_{nombre_clip}"
             
-            crear_video_vertical(ruta_clip, titulo, nombre_salida, ruta_logo=ruta_logo)
+            crear_video_vertical(ruta_clip, titulo, nombre_salida, ruta_logo=ruta_logo, es_imagen_titulo=es_imagen_titulo)
         else:
             print("Número de clip inválido.")
     except ValueError:
