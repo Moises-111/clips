@@ -50,10 +50,11 @@ def crear_imagen_titulo(texto, ancho, alto=300, ruta_salida="temp_titulo.png"):
     img.save(ruta_salida)
     return ruta_salida
 
-def crear_video_vertical(ruta_clip, titulo, nombre_salida, carpeta_destino="clips_finales"):
+def crear_video_vertical(ruta_clip, titulo, nombre_salida, carpeta_destino="clips_finales", ruta_logo=None):
     """
     Toma un clip horizontal, lo pone en un lienzo vertical (9:16) con fondo negro,
-    y le añade un título en la parte superior usando FFmpeg directamente (Súper rápido).
+    le añade un título en la parte superior y opcionalmente un logo en la esquina inferior derecha.
+    Limpia todos los metadatos para evitar detección en TikTok.
     """
     if not os.path.exists(carpeta_destino):
         os.makedirs(carpeta_destino)
@@ -67,27 +68,48 @@ def crear_video_vertical(ruta_clip, titulo, nombre_salida, carpeta_destino="clip
         # 1. Crear la imagen del título
         crear_imagen_titulo(titulo, 1080, 300, ruta_titulo_temp)
         
-        # 2. Comando FFmpeg complejo (Filter Complex)
-        # - Escala el video a 1080 de ancho manteniendo proporción
-        # - Crea un fondo negro de 1080x1920
-        # - Pone el video en el centro del fondo negro
-        # - Pone el título en la parte superior (y=150)
-        # - shortest=1 asegura que el video termine cuando termine el clip original
+        # 2. Construir el comando FFmpeg
         comando = [
             "ffmpeg",
             "-y", # Sobrescribir
             "-i", ruta_clip, # Entrada 0: El video
             "-i", ruta_titulo_temp, # Entrada 1: El título
-            "-filter_complex", 
-            "[0:v]scale=1080:-1[vid];" + # Escalar video
-            "color=c=black:s=1080x1920[bg];" + # Crear fondo negro
-            "[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];" + # Centrar video y detener al terminar el clip
-            "[bg_vid][1:v]overlay=0:150", # Poner título arriba
+        ]
+        
+        # Si hay logo, lo añadimos como entrada 2
+        if ruta_logo and os.path.exists(ruta_logo):
+            comando.extend(["-i", ruta_logo])
+            # Filter complex con logo:
+            # - Escala el video a 1080
+            # - Crea fondo negro
+            # - Centra el video
+            # - Pone el título arriba
+            # - Escala el logo a 200px de ancho y lo pone abajo a la derecha (con margen de 50px)
+            filter_complex = (
+                "[0:v]scale=1080:-1[vid];"
+                "color=c=black:s=1080x1920[bg];"
+                "[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];"
+                "[bg_vid][1:v]overlay=0:150[bg_vid_tit];"
+                "[2:v]scale=200:-1[logo];"
+                "[bg_vid_tit][logo]overlay=W-w-50:H-h-50"
+            )
+        else:
+            # Filter complex sin logo
+            filter_complex = (
+                "[0:v]scale=1080:-1[vid];"
+                "color=c=black:s=1080x1920[bg];"
+                "[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];"
+                "[bg_vid][1:v]overlay=0:150"
+            )
+            
+        comando.extend([
+            "-filter_complex", filter_complex,
             "-c:v", "libx264", # Codec de video
             "-preset", "ultrafast", # Renderizado súper rápido
-            "-c:a", "copy", # Copiar el audio tal cual (instantáneo)
+            "-c:a", "copy", # Copiar el audio tal cual
+            "-map_metadata", "-1", # ¡CRÍTICO! Borrar todos los metadatos para TikTok
             ruta_salida
-        ]
+        ])
         
         print("Renderizando con FFmpeg...")
         # Ejecutar FFmpeg
@@ -131,9 +153,17 @@ if __name__ == "__main__":
             
             titulo = input("Ingresa el título llamativo para la parte superior del video: ")
             
+            # Preguntar por el logo
+            usar_logo = input("¿Quieres añadir tu logo 'imagenpersonal.jpg' en la esquina inferior derecha? (s/n): ").lower()
+            ruta_logo = "imagenpersonal.jpg" if usar_logo == 's' else None
+            
+            if ruta_logo and not os.path.exists(ruta_logo):
+                print(f"Advertencia: No se encontró el archivo '{ruta_logo}'. Se continuará sin logo.")
+                ruta_logo = None
+            
             nombre_salida = f"vertical_{nombre_clip}"
             
-            crear_video_vertical(ruta_clip, titulo, nombre_salida)
+            crear_video_vertical(ruta_clip, titulo, nombre_salida, ruta_logo=ruta_logo)
         else:
             print("Número de clip inválido.")
     except ValueError:
