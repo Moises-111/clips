@@ -54,7 +54,7 @@ def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_dest
     """
     Toma un clip horizontal, lo pone en un lienzo vertical (9:16) con fondo borroso (blur) dinámico,
     le añade un título (texto o imagen) en la parte superior.
-    Limpia todos los metadatos y altera ligeramente la velocidad/zoom para evitar detección en TikTok.
+    Limpia todos los metadatos para evitar detección en TikTok.
     """
     if not os.path.exists(carpeta_destino):
         os.makedirs(carpeta_destino)
@@ -87,14 +87,14 @@ def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_dest
         entrada_titulo = "[tit_escalado]" if es_imagen_titulo else "[1:v]"
         pos_y_titulo = "0" if es_imagen_titulo else "150"
 
-        # Filter complex ANTI-BANEO TIKTOK:
+        # Filter complex ANTI-BANEO TIKTOK (Versión fluida):
         # 1. [0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg] -> Crea el fondo borroso dinámico
-        # 2. [0:v]scale=1080:-1,zoompan=z='1.02':d=1[vid] -> Escala el video principal y le hace un zoom imperceptible del 2%
+        # 2. [0:v]scale=1080:-1[vid] -> Escala el video principal (sin zoom para evitar lentitud)
         # 3. [bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid] -> Pone el video sobre el fondo borroso
         # 4. [bg_vid]{entrada_titulo}overlay=0:{pos_y_titulo} -> Pone el título
         filter_complex = (
             f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];"
-            f"[0:v]scale=1080:-1,zoompan=z='1.02':d=1[vid];"
+            f"[0:v]scale=1080:-1[vid];"
             f"{escala_titulo}"
             f"[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];"
             f"[bg_vid]{entrada_titulo}overlay=0:{pos_y_titulo}"
@@ -104,9 +104,7 @@ def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_dest
             "-filter_complex", filter_complex,
             "-c:v", "libx264", # Codec de video
             "-preset", "ultrafast", # Renderizado súper rápido
-            # Aceleramos el audio un 1% para que el hash sea diferente al original
-            "-filter:a", "atempo=1.01", 
-            "-c:a", "aac", # Como usamos filtro de audio, debemos re-codificar a aac
+            "-c:a", "copy", # Copiamos el audio original para evitar desincronización o lentitud
             "-map_metadata", "-1", # ¡CRÍTICO! Borrar todos los metadatos para TikTok
             ruta_salida
         ])
@@ -169,7 +167,7 @@ if __name__ == "__main__":
             
             nombre_salida = f"vertical_{nombre_clip}"
             
-            print("\n[INFO] Aplicando técnicas anti-baneo de TikTok (Fondo borroso dinámico, zoom 2%, velocidad 1.01x, sin metadatos)...")
+            print("\n[INFO] Aplicando técnicas anti-baneo de TikTok (Fondo borroso dinámico, sin metadatos)...")
             crear_video_vertical(ruta_clip, titulo, nombre_salida, es_imagen_titulo=es_imagen_titulo)
         else:
             print("Número de clip inválido.")
