@@ -2,49 +2,78 @@ import os
 import subprocess
 from PIL import Image, ImageDraw, ImageFont
 
+import textwrap
+
 def crear_imagen_titulo(texto, ancho, alto=300, ruta_salida="temp_titulo.png"):
     """
     Crea una imagen transparente con el texto estilizado (estilo viral) usando Pillow.
+    Ajusta automáticamente el texto largo en varias líneas para que no se corte.
     """
     # Crear imagen transparente
     img = Image.new('RGBA', (ancho, alto), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     
     # Intentar cargar una fuente gruesa (Impact o Arial Black)
+    tamano_fuente = 90
     try:
-        # En Windows, Impact suele estar aquí
-        font = ImageFont.truetype("impact.ttf", 90)
+        font = ImageFont.truetype("impact.ttf", tamano_fuente)
     except IOError:
         try:
-            font = ImageFont.truetype("arialbd.ttf", 80) # Arial Bold
+            font = ImageFont.truetype("arialbd.ttf", 80)
+            tamano_fuente = 80
         except IOError:
             font = ImageFont.load_default()
-            
-    # Calcular tamaño del texto para centrarlo
-    # Usamos textbbox en lugar de textsize (que está deprecado en Pillow nuevo)
-    try:
-        bbox = draw.textbbox((0, 0), texto, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-    except AttributeError:
-        # Fallback para versiones antiguas de Pillow
-        text_width, text_height = draw.textsize(texto, font=font)
-        
-    x = (ancho - text_width) / 2
-    y = (alto - text_height) / 2
-    
+            tamano_fuente = 20
+
+    # Dividir el texto en líneas si es muy largo (aprox 20 caracteres por línea para tamaño 90)
+    # Ajustamos el ancho de envoltura dependiendo de la longitud del texto
+    caracteres_por_linea = 22
+    if len(texto) > caracteres_por_linea:
+        lineas = textwrap.wrap(texto, width=caracteres_por_linea)
+    else:
+        lineas = [texto]
+
     # Colores estilo viral
     color_texto = (255, 255, 0, 255) # Amarillo brillante
     color_borde = (0, 0, 0, 255)     # Negro
     grosor_borde = 5
+
+    # Calcular la altura total de todas las líneas para centrarlas verticalmente
+    altura_total = 0
+    alturas_lineas = []
     
-    # Dibujar el borde (stroke) dibujando el texto desplazado en varias direcciones
-    for adj_x in range(-grosor_borde, grosor_borde + 1):
-        for adj_y in range(-grosor_borde, grosor_borde + 1):
-            draw.text((x + adj_x, y + adj_y), texto, font=font, fill=color_borde)
+    for linea in lineas:
+        try:
+            bbox = draw.textbbox((0, 0), linea, font=font)
+            h = bbox[3] - bbox[1]
+        except AttributeError:
+            _, h = draw.textsize(linea, font=font)
+        alturas_lineas.append(h)
+        altura_total += h + 10 # 10px de espacio entre líneas
+
+    # Posición Y inicial para que el bloque de texto quede centrado verticalmente
+    y_actual = (alto - altura_total) / 2
+
+    # Dibujar cada línea centrada horizontalmente
+    for i, linea in enumerate(lineas):
+        try:
+            bbox = draw.textbbox((0, 0), linea, font=font)
+            text_width = bbox[2] - bbox[0]
+        except AttributeError:
+            text_width, _ = draw.textsize(linea, font=font)
             
-    # Dibujar el texto principal encima
-    draw.text((x, y), texto, font=font, fill=color_texto)
+        x = (ancho - text_width) / 2
+        
+        # Dibujar el borde (stroke)
+        for adj_x in range(-grosor_borde, grosor_borde + 1):
+            for adj_y in range(-grosor_borde, grosor_borde + 1):
+                draw.text((x + adj_x, y_actual + adj_y), linea, font=font, fill=color_borde)
+                
+        # Dibujar el texto principal encima
+        draw.text((x, y_actual), linea, font=font, fill=color_texto)
+        
+        # Mover Y para la siguiente línea
+        y_actual += alturas_lineas[i] + 10
     
     # Guardar la imagen temporalmente para que FFmpeg la use
     img.save(ruta_salida)
