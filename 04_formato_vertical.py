@@ -79,7 +79,7 @@ def crear_imagen_titulo(texto, ancho, alto=300, ruta_salida="temp_titulo.png"):
     img.save(ruta_salida)
     return ruta_salida
 
-def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_destino="clips_finales", es_imagen_titulo=False):
+def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_destino="clips_finales", es_imagen_titulo=False, modo_audio="original", ruta_audio=None):
     """
     Toma un clip horizontal, lo pone en un lienzo vertical (9:16) con fondo borroso (blur) dinámico,
     le añade un título (texto o imagen) en la parte superior.
@@ -89,10 +89,17 @@ def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_dest
         os.makedirs(carpeta_destino)
         print(f"Carpeta '{carpeta_destino}' creada.")
 
+    if modo_audio not in ("original", "silencio", "reemplazar"):
+        print("Modo de audio inválido.")
+        return False
+    if modo_audio == "reemplazar" and (not ruta_audio or not os.path.isfile(ruta_audio)):
+        print(f"No se encontró el archivo de audio: {ruta_audio}")
+        return False
+
     ruta_salida = os.path.join(carpeta_destino, nombre_salida)
     ruta_titulo_temp = "temp_titulo.png"
     
-    print(f"Procesando {ruta_clip} a formato vertical (Modo Ultra Rápido)...")
+    print(f"Procesando {ruta_clip} a formato vertical (Modo Acelerado)...")
     try:
         # 1. Preparar la imagen del título (generada o proporcionada por el usuario)
         if es_imagen_titulo and os.path.exists(titulo_o_imagen):
@@ -110,6 +117,8 @@ def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_dest
             "-i", ruta_clip, # Entrada 0: El video
             "-i", ruta_titulo_final, # Entrada 1: El título (texto o imagen)
         ]
+        if modo_audio == "reemplazar":
+            comando.extend(["-stream_loop", "-1", "-i", ruta_audio])
         
         # Ajustar el overlay del título dependiendo de si es imagen o texto
         escala_titulo = "[1:v]scale=1080:-1[tit_escalado];" if es_imagen_titulo else ""
@@ -117,30 +126,34 @@ def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_dest
         pos_y_titulo = "0" if es_imagen_titulo else "150"
 
         # Filter complex ANTI-BANEO TIKTOK (Versión fluida):
-        # 1. [0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg] -> Crea el fondo borroso dinámico
+        # 1. Procesa el fondo a media resolución antes de ampliarlo para reducir el coste del desenfoque
         # 2. [0:v]scale=1080:-1[vid] -> Escala el video principal (sin zoom para evitar lentitud)
         # 3. [bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid] -> Pone el video sobre el fondo borroso
         # 4. [bg_vid]{entrada_titulo}overlay=0:{pos_y_titulo} -> Pone el título
         filter_complex = (
-            f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];"
+            f"[0:v]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=10:10,scale=1080:1920[bg];"
             f"[0:v]scale=1080:-1[vid];"
             f"{escala_titulo}"
             f"[bg][vid]overlay=0:(H-h)/2:shortest=1[bg_vid];"
-            f"[bg_vid]{entrada_titulo}overlay=0:{pos_y_titulo}"
+            f"[bg_vid]{entrada_titulo}overlay=0:{pos_y_titulo}[vout]"
         )
             
         comando.extend([
             "-filter_complex", filter_complex,
-            "-c:v", "libx264", # Codec de video
-            "-preset", "ultrafast", # Renderizado súper rápido
-            "-c:a", "copy", # Copiamos el audio original para evitar desincronización o lentitud
-            "-map_metadata", "-1", # ¡CRÍTICO! Borrar todos los metadatos para TikTok
-            ruta_salida
+            "-map", "[vout]",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
         ])
+        if modo_audio == "silencio":
+            comando.append("-an")
+        elif modo_audio == "reemplazar":
+            comando.extend(["-map", "2:a:0", "-c:a", "aac", "-b:a", "192k", "-shortest"])
+        else:
+            comando.extend(["-map", "0:a?", "-c:a", "copy"])
+        comando.extend(["-map_metadata", "-1", ruta_salida])
         
         print("Renderizando con FFmpeg...")
-        # Ejecutar FFmpeg
-        subprocess.run(comando, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(comando, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         
         # Limpiar archivo temporal (solo si se generó texto)
         if not es_imagen_titulo and os.path.exists(ruta_titulo_temp):
@@ -151,6 +164,8 @@ def crear_video_vertical(ruta_clip, titulo_o_imagen, nombre_salida, carpeta_dest
         
     except subprocess.CalledProcessError as e:
         print(f"Error de FFmpeg al crear el video vertical.")
+        if e.stderr:
+            print("Detalle de FFmpeg:\n" + "\n".join(e.stderr.splitlines()[-12:]))
         return False
     except Exception as e:
         print(f"Error inesperado: {e}")
@@ -193,11 +208,21 @@ if __name__ == "__main__":
                     es_imagen_titulo = True
             else:
                 titulo = input("Ingresa el título llamativo para la parte superior del video: ")
+
+            print("\nOpciones de audio:")
+            print("1. Conservar el audio original")
+            print("2. Silenciar el video")
+            print("3. Reemplazarlo con una pista propia o con licencia")
+            opcion_audio = input("Elige una opción (1, 2 o 3): ").strip()
+            modo_audio = {"1": "original", "2": "silencio", "3": "reemplazar"}.get(opcion_audio, "original")
+            ruta_audio = None
+            if modo_audio == "reemplazar":
+                ruta_audio = input("Ingresa la ruta del archivo de audio autorizado: ").strip().strip('"')
             
             nombre_salida = f"vertical_{nombre_clip}"
             
             print("\n[INFO] Aplicando técnicas anti-baneo de TikTok (Fondo borroso dinámico, sin metadatos)...")
-            crear_video_vertical(ruta_clip, titulo, nombre_salida, es_imagen_titulo=es_imagen_titulo)
+            crear_video_vertical(ruta_clip, titulo, nombre_salida, es_imagen_titulo=es_imagen_titulo, modo_audio=modo_audio, ruta_audio=ruta_audio)
         else:
             print("Número de clip inválido.")
     except ValueError:
